@@ -116,13 +116,13 @@ resetar_tokens(manter_limite=False)  # zera tudo
 4. Trigger: `At startup`
 5. Action: 
    - Program: `C:\Windows\System32\wscript.exe`
-   - Arguments: `"C:\caminho\para\rodar.vbs"`
+   - Arguments: `"C:\caminho\para\iniciar_no_windows.vbs"`
    - Start in: `C:\caminho\para\pasta\do\projeto`
 6. **OK**
 
 ### Via atalho na pasta Startup
 
-1. Cria atalho para `rodar.vbs`
+1. Cria atalho para `iniciar_no_windows.vbs`
 2. Move para: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`
 3. Pronto — roda automaticamente no boot
 
