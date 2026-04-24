@@ -58,8 +58,8 @@ Monitoramento_tokens_claude/
 **Opção 1: Duplo clique em `iniciar.pyw`**
 - Abre sem janela de console, sem pedir chave de API
 
-**Opção 2: Executar em background (Windows) — use `rodar.vbs`**
-- Duplo clique em `rodar.vbs` para abrir o overlay totalmente hidden
+**Opção 2: Executar em background (Windows) — use `iniciar_no_windows.vbs`**
+- Duplo clique em `iniciar_no_windows.vbs` para abrir o overlay totalmente hidden
 - Não mostra nenhuma janela, roda completamente em background
 - Ideal para inicialização automática no boot
 
