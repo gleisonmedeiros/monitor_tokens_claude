@@ -63,12 +63,6 @@ Monitoramento_tokens_claude/
 - Não mostra nenhuma janela, roda completamente em background
 - Ideal para inicialização automática no boot
 
-Se não tiver `rodar.vbs`, cria arquivo `rodar.vbs` na pasta do projeto:
-```vbscript
-Set objShell = CreateObject("WScript.Shell")
-objShell.Run "python iniciar.pyw", 0, False
-```
-
 **Opção 3: Linha de comando**
 ```bash
 python iniciar.pyw
