@@ -55,7 +55,24 @@ Monitoramento_tokens_claude/
 
 ### Abrir o overlay
 
-Duplo clique em `iniciar.pyw` — abre sem janela de console, sem pedir chave de API.
+**Opção 1: Duplo clique em `iniciar.pyw`**
+- Abre sem janela de console, sem pedir chave de API
+
+**Opção 2: Executar em background (Windows) — use `rodar.vbs`**
+- Duplo clique em `rodar.vbs` para abrir o overlay totalmente hidden
+- Não mostra nenhuma janela, roda completamente em background
+- Ideal para inicialização automática no boot
+
+Se não tiver `rodar.vbs`, cria arquivo `rodar.vbs` na pasta do projeto:
+```vbscript
+Set objShell = CreateObject("WScript.Shell")
+objShell.Run "python iniciar.pyw", 0, False
+```
+
+**Opção 3: Linha de comando**
+```bash
+python iniciar.pyw
+```
 
 ### Usar o rastreador nos seus scripts
 
@@ -92,6 +109,28 @@ definir_limite(100_000)   # define um limite de referência
 resetar_tokens()          # zera contadores (mantém o limite)
 resetar_tokens(manter_limite=False)  # zera tudo
 ```
+
+---
+
+## Inicialização automática no Windows
+
+### Via Task Scheduler (Recomendado)
+
+1. Abre **Task Scheduler** (Agendador de Tarefas)
+2. **Create Basic Task**
+3. Nome: `Monitor de Tokens Claude`
+4. Trigger: `At startup`
+5. Action: 
+   - Program: `C:\Windows\System32\wscript.exe`
+   - Arguments: `"C:\caminho\para\rodar.vbs"`
+   - Start in: `C:\caminho\para\pasta\do\projeto`
+6. **OK**
+
+### Via atalho na pasta Startup
+
+1. Cria atalho para `rodar.vbs`
+2. Move para: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`
+3. Pronto — roda automaticamente no boot
 
 ---
 
