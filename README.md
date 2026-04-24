@@ -34,12 +34,12 @@ A cota real é consultada diretamente nos **headers HTTP de rate limit** da API 
 
 ```
 Monitoramento_tokens_claude/
-├── claude_tracker.py   # wrapper do cliente + registro de tokens
-├── monitor_tokens.py   # overlay visual (Tkinter)
-├── iniciar.pyw         # ponto de entrada — duplo clique para abrir
-├── configurar.py       # configuração inicial da chave de API (opcional, não necessário com OAuth)
-├── exemplo_uso.py      # exemplo de uso do claude_tracker
-└── tokens.json         # dados locais de uso (sincronizados com ~/.claude_monitor/)
+├── claude_tracker.py       # wrapper do cliente + registro de tokens
+├── monitor_tokens.py       # overlay visual (Tkinter)
+├── iniciar.pyw             # ponto de entrada — duplo clique para abrir
+├── iniciar_no_windows.vbs  # executa em background no Windows (sem janela)
+├── exemplo_uso.py          # exemplo de uso do claude_tracker
+└── tokens.json             # dados locais de uso (sincronizados com ~/.claude_monitor/)
 ```
 
 **Arquivo global:** `~/.claude_monitor/tokens.json` — compartilhado entre todos os projetos que usam `claude_tracker`.
