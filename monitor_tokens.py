@@ -1,17 +1,26 @@
-import tkinter as tk
+import sys
 import json
 import time
 import threading
 from pathlib import Path
-from datetime import datetime
 
-TOKENS_FILE  = Path.home() / ".claude_monitor" / "tokens.json"
-CREDS_FILE   = Path.home() / ".claude" / ".credentials.json"
-UPDATE_MS    = 1000
-POLL_COTA_S  = 120  # consulta a cota real a cada 2min
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QFrame, QPushButton, QMenu, QProgressBar,
+)
+from PyQt5.QtCore import Qt, QTimer, QPoint
 
+TOKENS_FILE = Path.home() / ".claude_monitor" / "tokens.json"
+CREDS_FILE  = Path.home() / ".claude" / ".credentials.json"
+UPDATE_MS   = 1000
+POLL_COTA_S = 120
 
-# ── Leitura do tokens.json local ───────────────────────────────────────────────
+_cota = {
+    "pct_5h": None, "reset_5h": None, "pct_7d": None,
+    "status": "...", "erro": None, "ultima": 0,
+}
+_cota_lock = threading.Lock()
+
 
 def load_data():
     try:
@@ -19,19 +28,6 @@ def load_data():
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
-
-
-# ── Consulta cota real via API ─────────────────────────────────────────────────
-
-_cota = {
-    "pct_5h":    None,   # 0.0 a 1.0
-    "reset_5h":  None,   # timestamp unix
-    "pct_7d":    None,
-    "status":    "...",
-    "erro":      None,
-    "ultima":    0,
-}
-_cota_lock = threading.Lock()
 
 
 def _obter_token_oauth():
@@ -44,6 +40,7 @@ def _obter_token_oauth():
 
 def _consultar_cota():
     import urllib.request
+    import urllib.error
     token = _obter_token_oauth()
     if not token:
         with _cota_lock:
@@ -55,10 +52,10 @@ def _consultar_cota():
         "https://api.anthropic.com/v1/messages",
         data=body,
         headers={
-            "Content-Type":    "application/json",
-            "Authorization":   f"Bearer {token}",
+            "Content-Type":      "application/json",
+            "Authorization":     f"Bearer {token}",
             "anthropic-version": "2023-06-01",
-            "anthropic-beta":  "oauth-2025-04-20",
+            "anthropic-beta":    "oauth-2025-04-20",
         },
         method="POST",
     )
@@ -79,8 +76,8 @@ def _consultar_cota():
         return default
 
     try:
-        pct_5h   = float(hf("anthropic-ratelimit-unified-5h-utilization",  "0"))
-        pct_7d   = float(hf("anthropic-ratelimit-unified-7d-utilization",  "0"))
+        pct_5h   = float(hf("anthropic-ratelimit-unified-5h-utilization", "0"))
+        pct_7d   = float(hf("anthropic-ratelimit-unified-7d-utilization", "0"))
         reset_5h = int(hf("anthropic-ratelimit-unified-5h-reset", "0"))
         status   = hf("anthropic-ratelimit-unified-status", "?")
         with _cota_lock:
@@ -101,97 +98,115 @@ def _loop_cota():
         time.sleep(POLL_COTA_S)
 
 
-# ── Overlay ────────────────────────────────────────────────────────────────────
+_FONT_MONO = "Consolas"
+_BG        = "#1a1a1a"
 
-class TokenOverlay:
+def _label(parent, text, size, bold=False, color="#888888"):
+    lbl = QLabel(text, parent)
+    weight = "bold" if bold else "normal"
+    lbl.setStyleSheet(
+        f"color: {color}; font-family: {_FONT_MONO}; font-size: {size}pt; font-weight: {weight};"
+    )
+    return lbl
+
+def _bar_style(cor):
+    return (
+        f"QProgressBar {{ background: #333333; border: none; border-radius: 2px; }}"
+        f"QProgressBar::chunk {{ background: {cor}; border-radius: 2px; }}"
+    )
+
+
+class TokenOverlay(QWidget):
     def __init__(self):
-        t = threading.Thread(target=_loop_cota, daemon=True)
-        t.start()
+        threading.Thread(target=_loop_cota, daemon=True).start()
 
-        self.root = tk.Tk()
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.90)
-        self.root.configure(bg="#111111")
-        self.root.resizable(False, False)
+        app = QApplication.instance() or QApplication(sys.argv)
+        super().__init__()
 
-        self.drag_x = self.drag_y = 0
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setWindowOpacity(0.90)
+        self.setStyleSheet(f"background-color: {_BG};")
 
-        f = tk.Frame(self.root, bg="#1a1a1a", padx=10, pady=6)
-        f.pack()
+        self._drag_pos = QPoint()
 
-        # ── Botão fechar ──
-        header = tk.Frame(f, bg="#1a1a1a")
-        header.pack(fill="x")
-        tk.Button(header, text="✕", font=("Consolas", 8), fg="#666666",
-                  bg="#1a1a1a", activebackground="#ff4444", activeforeground="#ffffff",
-                  bd=0, cursor="hand2", command=self.root.destroy).pack(side="right")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 6, 10, 8)
+        layout.setSpacing(2)
 
-        # ── Cota da conta (uso total: browser + IDE + CLI + scripts) ──
-        tk.Label(f, text="COTA DA CONTA  (5h)", font=("Consolas", 7, "bold"),
-                 fg="#666666", bg="#1a1a1a").pack(anchor="w")
+        # Header
+        header = QHBoxLayout()
+        header.addStretch()
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(16, 16)
+        btn_close.setStyleSheet(
+            "QPushButton { color: #666666; background: transparent; border: none; font-size: 10px; }"
+            "QPushButton:hover { color: #ffffff; background: #ff4444; border-radius: 2px; }"
+        )
+        btn_close.clicked.connect(self.close)
+        header.addWidget(btn_close)
+        layout.addLayout(header)
 
-        self.bar_frame = tk.Frame(f, bg="#333333", height=8, width=160)
-        self.bar_frame.pack(fill="x", pady=(2, 0))
-        self.bar_fill = tk.Frame(self.bar_frame, bg="#00ff88", height=8, width=0)
-        self.bar_fill.place(x=0, y=0)
+        # Cota section
+        layout.addWidget(_label(self, "COTA DA CONTA  (5h)", 7, bold=True, color="#666666"))
 
-        self.lbl_pct   = tk.Label(f, text="consultando...",
-                                  font=("Consolas", 9, "bold"),
-                                  fg="#00ff88", bg="#1a1a1a")
-        self.lbl_pct.pack(anchor="w")
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.setValue(0)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(8)
+        self.bar.setStyleSheet(_bar_style("#00ff88"))
+        layout.addWidget(self.bar)
 
-        self.lbl_reset = tk.Label(f, text="",
-                                  font=("Consolas", 8),
-                                  fg="#555555", bg="#1a1a1a")
-        self.lbl_reset.pack(anchor="w")
+        self.lbl_pct   = _label(self, "consultando...", 9, bold=True)
+        self.lbl_reset = _label(self, "", 8, color="#555555")
+        layout.addWidget(self.lbl_pct)
+        layout.addWidget(self.lbl_reset)
 
-        # ── Separador ──
-        tk.Frame(f, bg="#333333", height=1).pack(fill="x", pady=6)
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #333333;")
+        layout.addWidget(sep)
 
-        # ── Scripts Python ──
-        tk.Label(f, text="SEUS SCRIPTS", font=("Consolas", 7, "bold"),
-                 fg="#666666", bg="#1a1a1a").pack(anchor="w")
+        # Scripts section
+        layout.addWidget(_label(self, "SEUS SCRIPTS", 7, bold=True, color="#666666"))
+        self.lbl_scripts = _label(self, "nenhum script rodou ainda", 9)
+        layout.addWidget(self.lbl_scripts)
 
-        self.lbl_scripts = tk.Label(f, text="0 tokens  •  0 req",
-                                    font=("Consolas", 9),
-                                    fg="#888888", bg="#1a1a1a")
-        self.lbl_scripts.pack(anchor="w")
+        # Position top-right
+        screen = QApplication.primaryScreen().geometry()
+        self.adjustSize()
+        self.move(screen.width() - self.width() - 10, 10)
 
-        # Posição: canto superior direito
-        self.root.update_idletasks()
-        sw = self.root.winfo_screenwidth()
-        self.root.geometry(f"+{sw - 200}+10")
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.atualizar)
+        self.timer.start(UPDATE_MS)
 
-        for w in f.winfo_children():
-            w.bind("<ButtonPress-1>", self.start_drag)
-            w.bind("<B1-Motion>",     self.do_drag)
-            w.bind("<Button-3>",      self.menu_direito)
-        for w in [self.root, f, self.bar_frame]:
-            w.bind("<ButtonPress-1>", self.start_drag)
-            w.bind("<B1-Motion>",     self.do_drag)
-            w.bind("<Button-3>",      self.menu_direito)
-
-        self.menu = tk.Menu(self.root, tearoff=0)
-        self.menu.add_command(label="Atualizar agora",   command=lambda: threading.Thread(target=_consultar_cota, daemon=True).start())
-        self.menu.add_command(label="Zerar scripts",     command=self.zerar_scripts)
-        self.menu.add_separator()
-        self.menu.add_command(label="Fechar",            command=self.root.destroy)
-
-        self.atualizar()
-        self.root.mainloop()
+        self.show()
+        app.exec_()
 
     # ── Drag ──────────────────────────────────────────────────────────────────
 
-    def start_drag(self, event):
-        self.drag_x = event.x_root - self.root.winfo_x()
-        self.drag_y = event.y_root - self.root.winfo_y()
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
 
-    def do_drag(self, event):
-        self.root.geometry(f"+{event.x_root - self.drag_x}+{event.y_root - self.drag_y}")
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton:
+            self.move(event.globalPos() - self._drag_pos)
 
-    def menu_direito(self, event):
-        self.menu.tk_popup(event.x_root, event.y_root)
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #1a1a1a; color: #cccccc; border: 1px solid #333333; }"
+            "QMenu::item:selected { background: #333333; }"
+        )
+        menu.addAction("Atualizar agora",
+                       lambda: threading.Thread(target=_consultar_cota, daemon=True).start())
+        menu.addAction("Zerar scripts", self.zerar_scripts)
+        menu.addSeparator()
+        menu.addAction("Fechar", self.close)
+        menu.exec_(event.globalPos())
 
     def zerar_scripts(self):
         d = load_data()
@@ -200,54 +215,47 @@ class TokenOverlay:
         with open(TOKENS_FILE, "w", encoding="utf-8") as f:
             json.dump(d, f, indent=2)
 
-    # ── Loop de atualização ────────────────────────────────────────────────────
+    # ── Update loop ────────────────────────────────────────────────────────────
 
     def atualizar(self):
         self._atualizar_cota()
         self._atualizar_scripts()
-        self.root.after(UPDATE_MS, self.atualizar)
 
     def _atualizar_cota(self):
         with _cota_lock:
             pct      = _cota["pct_5h"]
             reset_ts = _cota["reset_5h"]
-            status   = _cota["status"]
             erro     = _cota["erro"]
 
         if erro:
-            self.lbl_pct.config(text=f"erro: {erro[:20]}", fg="#ff4444")
-            self.lbl_reset.config(text="")
+            self.lbl_pct.setStyleSheet(
+                f"color: #ff4444; font-family: {_FONT_MONO}; font-size: 9pt; font-weight: bold;"
+            )
+            self.lbl_pct.setText(f"erro: {erro[:20]}")
+            self.lbl_reset.setText("")
             return
 
         if pct is None:
-            self.lbl_pct.config(text="consultando...", fg="#888888")
             return
 
         usado    = round(pct * 100)
         restante = 100 - usado
+        cor = "#ff4444" if restante <= 10 else "#ffaa00" if restante <= 30 else "#00ff88"
 
-        # Cor por urgência
-        if restante <= 10:
-            cor = "#ff4444"
-        elif restante <= 30:
-            cor = "#ffaa00"
-        else:
-            cor = "#00ff88"
+        self.lbl_pct.setStyleSheet(
+            f"color: {cor}; font-family: {_FONT_MONO}; font-size: 9pt; font-weight: bold;"
+        )
+        self.lbl_pct.setText(f"{restante}% restante  ({usado}% usado)")
+        self.bar.setValue(usado)
+        self.bar.setStyleSheet(_bar_style(cor))
 
-        self.lbl_pct.config(text=f"{restante}% restante  ({usado}% usado)", fg=cor)
-
-        # Barra de progresso (largura 160px)
-        bar_w = max(1, int(160 * pct))
-        self.bar_fill.config(bg=cor, width=bar_w)
-
-        # Contagem regressiva
         if reset_ts:
             secs = int(reset_ts - time.time())
             if secs > 0:
                 h, m = divmod(secs // 60, 60)
-                self.lbl_reset.config(text=f"reseta em {h}h{m:02d}min")
+                self.lbl_reset.setText(f"reseta em {h}h{m:02d}min")
             else:
-                self.lbl_reset.config(text="resetando...")
+                self.lbl_reset.setText("resetando...")
 
     def _atualizar_scripts(self):
         d = load_data()
@@ -256,11 +264,11 @@ class TokenOverlay:
         inp    = d.get("input_tokens", 0)
         out    = d.get("output_tokens", 0)
         if reqs > 0:
-            self.lbl_scripts.config(
-                text=f"{tokens:,} tokens  •  {reqs} req\n↑{inp:,} entrada  ↓{out:,} saída".replace(",", ".")
+            self.lbl_scripts.setText(
+                f"{tokens:,} tokens  •  {reqs} req\n↑{inp:,} entrada  ↓{out:,} saída".replace(",", ".")
             )
         else:
-            self.lbl_scripts.config(text="nenhum script rodou ainda")
+            self.lbl_scripts.setText("nenhum script rodou ainda")
 
 
 if __name__ == "__main__":
